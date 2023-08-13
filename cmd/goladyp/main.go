@@ -164,7 +164,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/send-email", sendEmailHandler)
+	http.HandleFunc("/request", sendEmailHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
