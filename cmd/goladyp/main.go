@@ -21,15 +21,16 @@ type RequestData struct {
 
 func checkUsernameExists(username string) (bool, error) {
 	ldapServer := os.Getenv("LDAP_SERVER")
+	ldapPort := os.Getenv("LDAP_PORT")
 	ldapBindDN := os.Getenv("LDAP_BIND_DN")
 	ldapBindPassword := os.Getenv("LDAP_BIND_PASSWORD")
 	ldapBaseDN := os.Getenv("LDAP_BASE_DN")
 
 	// Set up a TLS configuration
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	tlsConfig := &tls.Config{InsecureSkipVerify: false}
 
 	// Connect to the LDAP server over TLS
-	conn, err := ldap.DialTLS("tcp", ldapServer, tlsConfig)
+	conn, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", ldapServer, ldapPort), tlsConfig)
 	if err != nil {
 		return false, err
 	}
@@ -83,17 +84,18 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	fromEmail := os.Getenv("FROM_EMAIL")
 	toEmail := os.Getenv("TO_EMAIL")
 	smtpServer := os.Getenv("SMTP_SERVER")
+	smtpPort := os.Getenv("SMTP_PORT")
 	smtpUsername := os.Getenv("SMTP_USERNAME")
 	smtpPassword := os.Getenv("SMTP_PASSWORD")
 
 	// Set up TLS configuration
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: false,
 		ServerName:         strings.Split(smtpServer, ":")[0],
 	}
 
 	// Connect to the SMTP server over TLS
-	client, err := smtp.Dial(smtpServer)
+	client, err := smtp.Dial(fmt.Sprintf("%s:%s", smtpServer, smtpPort))
 	if err != nil {
 		log.Println("Error connecting to SMTP server:", err)
 		http.Error(w, "Error sending email", http.StatusInternalServerError)
