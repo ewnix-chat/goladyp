@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/smtp"
 	"os"
@@ -89,7 +90,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		ServerName:         strings.Split(smtpServer, ":")[0],
 	}
 
-	client, err := smtp.DialTimeout(fmt.Sprintf("%s:%s", smtpServer, smtpPort), 35*time.Second)
+	client, err := smtp.Dial(fmt.Sprintf("%s:%s", smtpServer, smtpPort))
 	if err != nil {
 		log.Println("Error connecting to SMTP server:", err)
 		http.Error(w, "Error sending email, could not connect to SMTP server.", http.StatusInternalServerError)
@@ -164,5 +165,75 @@ func main() {
 	handler := c.Handler(mux)
 
 	log.Fatal(http.ListenAndServe(":8080", handler))
+}
+
+func dialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+	conn, err := net.DialTimeout(network, address, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return &connWithTimeout{Conn: conn, timeout: timeout}, nil
+}
+
+type connWithTimeout struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *connWithTimeout) Read(b []byte) (int, error) {
+	c.SetReadDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Read(b)
+}
+
+func (c *connWithTimeout) Write(b []byte) (int, error) {
+	c.SetWriteDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Write(b)
+}
+
+func sendEmailWithTimeout(addr string, a smtp.Auth, from string, to []string, msg []byte, timeout time.Duration) error {
+	conn, err := dialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	c, err := smtp.NewClient(conn, addr)
+	if err != nil {
+		return err
+	}
+	defer c.Quit()
+
+	if a != nil {
+		if ok, _ := c.Extension("AUTH"); ok {
+			if err = c.Auth(a); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err = c.Mail(from); err != nil {
+		return err
+	}
+
+	for _, addr := range to {
+		if err = c.Rcpt(addr); err != nil {
+			return err
+		}
+	}
+
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(msg)
+	if err != nil {
+		return err
+	}
+	err = w.Close()
+	if err != nil {
+		return err
+	}
+
+	return c.Quit()
 }
 
