@@ -14,13 +14,12 @@ import (
 
 func checkUsernameExists(username string) (bool, error) {
 	ldapServer := os.Getenv("LDAP_SERVER")
-	ldapPort := os.Getenv("LDAP_PORT")
 	ldapBindDN := os.Getenv("LDAP_BIND_DN")
 	ldapBindPassword := os.Getenv("LDAP_BIND_PASSWORD")
 	ldapBaseDN := os.Getenv("LDAP_BASE_DN")
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	conn, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", ldapServer, ldapPort), tlsConfig)
+	conn, err := ldap.DialTLS("tcp", ldapServer, tlsConfig)
 	if err != nil {
 		return false, err
 	}
@@ -50,11 +49,34 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	allowedOrigin := "https://www.ewnix.net"
+	origin := r.Header.Get("Origin")
+	if origin != allowedOrigin {
+		http.Error(w, "Not allowed", http.StatusForbidden)
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+	w.Header().Set("Access-Control-Allow-Methods", "POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
 	username := r.FormValue("username")
 	emailAddr := r.FormValue("email")
 
 	if username == "" || emailAddr == "" {
 		http.Error(w, "Username and email are required", http.StatusBadRequest)
+		return
+	}
+
+	usernameExists, err := checkUsernameExists(username)
+	if err != nil {
+		log.Println("Error checking username:", err)
+		http.Error(w, "Error processing request", http.StatusInternalServerError)
+		return
+	}
+
+	if usernameExists {
+		http.Error(w, "Username already exists!", http.StatusConflict)
 		return
 	}
 
