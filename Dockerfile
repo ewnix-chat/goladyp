@@ -1,24 +1,39 @@
-FROM golang:1.21-bullseye AS build-env
+# Use the official Go image as the base image
+FROM golang:1.16 AS build
 
-WORKDIR /src
+# Set the working directory inside the container
+WORKDIR /app
 
-COPY ./go.sum ./go.mod ./
-
+# Copy the Go module files and download the dependencies
+COPY go.mod go.sum ./
 RUN go mod download
 
+# Copy the source code into the container
 COPY . .
 
-RUN mkdir ./output
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -a -installsuffix cgo -ldflags '-extldflags "-static"' -o /src/output ./cmd/...
+# Build the Go application
+RUN go build -o goladyp goladyp.go
 
-FROM gcr.io/distroless/static
+# Use a smaller image as the base for the final deployment
+FROM alpine:3.14
 
-COPY --from=build-env /src/output /
+# Copy the binary from the build stage to the final image
+COPY --from=build /app/goladyp /usr/local/bin/
 
-USER nobody:nobody
-ENV PORT=8080
-EXPOSE $PORT
+# Set environment variables if needed
+ENV SMTP_SERVER=
+ENV SMTP_USERNAME=
+ENV SMTP_PASSWORD=
+ENV FROM_EMAIL=
+ENV TO_EMAIL=
+ENV LDAP_SERVER=
+ENV LDAP_BIND_DN=
+ENV LDAP_BIND_PASSWORD=
+ENV LDAP_BASE_DN=
 
-HEALTHCHECK --interval=10s --timeout=1s --start-period=5s --retries=3 CMD [ "/health" ]
+# Expose the port that your Go application will listen on
+EXPOSE 8080
 
-ENTRYPOINT ["/goladyp"]
+# Command to run the Go application
+CMD ["goladyp"]
+
