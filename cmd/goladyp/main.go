@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,11 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/rs/cors"
 )
+
+type RequestData struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
 
 func checkUsernameExists(username string) (bool, error) {
 	ldapServer := os.Getenv("LDAP_SERVER")
@@ -55,16 +61,14 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := r.FormValue("username")
-	emailAddr := r.FormValue("email")
-
-	if username == "" || emailAddr == "" {
-		http.Error(w, "Username and email are required", http.StatusBadRequest)
+	var requestData RequestData
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		http.Error(w, "Invalid JSON data", http.StatusBadRequest)
 		return
 	}
 
 	// Check if username already exists
-	usernameExists, err := checkUsernameExists(username)
+	usernameExists, err := checkUsernameExists(requestData.Username)
 	if err != nil {
 		log.Println("Error checking username:", err)
 		http.Error(w, "Error processing request", http.StatusInternalServerError)
@@ -135,7 +139,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	defer data.Close()
 
 	subject := "New Account Request!"
-	body := fmt.Sprintf("Username: %s\nEmail: %s", username, emailAddr)
+	body := fmt.Sprintf("Username: %s\nEmail: %s", requestData.Username, requestData.Email)
 	msg := fmt.Sprintf("Subject: %s\n%s\n", subject, body)
 
 	_, err = data.Write([]byte(msg))
