@@ -90,13 +90,26 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		ServerName:         strings.Split(smtpServer, ":")[0],
 	}
 
-	client, err := smtp.Dial(fmt.Sprintf("%s:%s", smtpServer, smtpPort))
+	dialer := &net.Dialer{
+		Timeout:   35 * time.Second, // Set the timeout to 35 seconds
+		KeepAlive: 0,                // Disable keep-alive
+	}
+
+	// Create a custom dialer with a timeout
+	conn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%s", smtpServer, smtpPort))
 	if err != nil {
 		log.Println("Error connecting to SMTP server:", err)
 		http.Error(w, "Error sending email, could not connect to SMTP server.", http.StatusInternalServerError)
 		return
 	}
-	defer client.Close()
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, smtpServer)
+	if err != nil {
+		log.Println("Error creating SMTP client:", err)
+		http.Error(w, "Error sending email, could not create SMTP client.", http.StatusInternalServerError)
+		return
+	}
 
 	if err := client.StartTLS(tlsConfig); err != nil {
 		log.Println("Error starting TLS:", err)
