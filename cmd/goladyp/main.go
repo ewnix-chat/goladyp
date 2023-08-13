@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-ldap/ldap/v3"
+	"github.com/rs/cors"
 )
 
 func checkUsernameExists(username string) (bool, error) {
@@ -18,18 +19,23 @@ func checkUsernameExists(username string) (bool, error) {
 	ldapBindPassword := os.Getenv("LDAP_BIND_PASSWORD")
 	ldapBaseDN := os.Getenv("LDAP_BASE_DN")
 
+	// Set up a TLS configuration
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+
+	// Connect to the LDAP server over TLS
 	conn, err := ldap.DialTLS("tcp", ldapServer, tlsConfig)
 	if err != nil {
 		return false, err
 	}
 	defer conn.Close()
 
+	// Bind with admin credentials
 	err = conn.Bind(ldapBindDN, ldapBindPassword)
 	if err != nil {
 		return false, err
 	}
 
+	// Search for the username in the specified base DN
 	searchRequest := ldap.NewSearchRequest(
 		ldapBaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		fmt.Sprintf("(cn=%s)", username), []string{"cn"}, nil,
@@ -49,17 +55,6 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedOrigin := "https://www.ewnix.net"
-	origin := r.Header.Get("Origin")
-	if origin != allowedOrigin {
-		http.Error(w, "Not allowed", http.StatusForbidden)
-		return
-	}
-
-	w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
 	username := r.FormValue("username")
 	emailAddr := r.FormValue("email")
 
@@ -68,6 +63,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if username already exists
 	usernameExists, err := checkUsernameExists(username)
 	if err != nil {
 		log.Println("Error checking username:", err)
@@ -86,11 +82,13 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	smtpUsername := os.Getenv("SMTP_USERNAME")
 	smtpPassword := os.Getenv("SMTP_PASSWORD")
 
+	// Set up TLS configuration
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         strings.Split(smtpServer, ":")[0],
 	}
 
+	// Connect to the SMTP server over TLS
 	client, err := smtp.Dial(smtpServer)
 	if err != nil {
 		log.Println("Error connecting to SMTP server:", err)
@@ -99,12 +97,14 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
+	// Start TLS handshake
 	if err := client.StartTLS(tlsConfig); err != nil {
 		log.Println("Error starting TLS:", err)
 		http.Error(w, "Error sending email", http.StatusInternalServerError)
 		return
 	}
 
+	// Authenticate
 	auth := smtp.PlainAuth("", smtpUsername, smtpPassword, strings.Split(smtpServer, ":")[0])
 	if err := client.Auth(auth); err != nil {
 		log.Println("Error authenticating:", err)
@@ -112,6 +112,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set the sender and recipient
 	if err := client.Mail(fromEmail); err != nil {
 		log.Println("Error setting sender:", err)
 		http.Error(w, "Error sending email", http.StatusInternalServerError)
@@ -124,6 +125,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Send the email body
 	data, err := client.Data()
 	if err != nil {
 		log.Println("Error sending email body:", err)
@@ -143,6 +145,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Send the email
 	if err := client.Quit(); err != nil {
 		log.Println("Error sending email:", err)
 		http.Error(w, "Error sending email", http.StatusInternalServerError)
@@ -153,7 +156,18 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/request", sendEmailHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/send-email", sendEmailHandler)
+
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"https://www.ewnix.net"},
+		AllowCredentials: true,
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   []string{"Origin", "Authorization", "Content-Type"},
+	})
+
+	handler := c.Handler(mux)
+
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }
 
