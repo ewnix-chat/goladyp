@@ -166,7 +166,7 @@ func main() {
 	mux.HandleFunc("/request", sendEmailHandler)
 
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"https://www.ewnix.net/request"},
+		AllowedOrigins:   []string{"*"},
 		AllowCredentials: true,
 		AllowedMethods:   []string{"GET", "POST"},
 		AllowedHeaders:   []string{"Origin", "Authorization", "Content-Type"},
