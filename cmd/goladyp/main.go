@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
-	"strings"
 
 	"github.com/go-ldap/ldap/v3"
 	"github.com/rs/cors"
@@ -26,23 +25,19 @@ func checkUsernameExists(username string) (bool, error) {
 	ldapBindPassword := os.Getenv("LDAP_BIND_PASSWORD")
 	ldapBaseDN := os.Getenv("LDAP_BASE_DN")
 
-	// Set up a TLS configuration
 	tlsConfig := &tls.Config{InsecureSkipVerify: false}
 
-	// Connect to the LDAP server over TLS
 	conn, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", ldapServer, ldapPort), tlsConfig)
 	if err != nil {
 		return false, err
 	}
 	defer conn.Close()
 
-	// Bind with admin credentials
 	err = conn.Bind(ldapBindDN, ldapBindPassword)
 	if err != nil {
 		return false, err
 	}
 
-	// Search for the username in the specified base DN
 	searchRequest := ldap.NewSearchRequest(
 		ldapBaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		fmt.Sprintf("(cn=%s)", username), []string{"cn"}, nil,
@@ -68,7 +63,6 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if username already exists
 	usernameExists, err := checkUsernameExists(requestData.Username)
 	if err != nil {
 		log.Println("Error checking username:", err)
@@ -88,13 +82,11 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	smtpUsername := os.Getenv("SMTP_USERNAME")
 	smtpPassword := os.Getenv("SMTP_PASSWORD")
 
-	// Set up TLS configuration
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
-		ServerName:         strings.Split(smtpServer, ":")[0],
+		ServerName:         smtpServer,
 	}
 
-	// Connect to the SMTP server over TLS
 	client, err := smtp.Dial(fmt.Sprintf("%s:%s", smtpServer, smtpPort))
 	if err != nil {
 		log.Println("Error connecting to SMTP server:", err)
@@ -103,22 +95,21 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	// Start TLS handshake
+	log.Println("Connected to SMTP server")
+
 	if err := client.StartTLS(tlsConfig); err != nil {
 		log.Println("Error starting TLS:", err)
 		http.Error(w, "Error sending email, TLS error", http.StatusInternalServerError)
 		return
 	}
 
-	// Authenticate
-	auth := smtp.PlainAuth("", smtpUsername, smtpPassword, strings.Split(smtpServer, ":")[0])
+	auth := smtp.PlainAuth("", smtpUsername, smtpPassword, smtpServer)
 	if err := client.Auth(auth); err != nil {
 		log.Println("Error authenticating:", err)
 		http.Error(w, "Error sending email, error authenticating", http.StatusInternalServerError)
 		return
 	}
 
-	// Set the sender and recipient
 	if err := client.Mail(fromEmail); err != nil {
 		log.Println("Error setting sender:", err)
 		http.Error(w, "Error sending email, error setting sender", http.StatusInternalServerError)
@@ -131,7 +122,6 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send the email body
 	data, err := client.Data()
 	if err != nil {
 		log.Println("Error sending email body:", err)
@@ -151,7 +141,6 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send the email
 	if err := client.Quit(); err != nil {
 		log.Println("Error sending email:", err)
 		http.Error(w, "Error sending email, could not send?", http.StatusInternalServerError)
