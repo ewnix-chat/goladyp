@@ -157,7 +157,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/send-email", sendEmailHandler)
+	mux.HandleFunc("/request", sendEmailHandler)
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"https://www.ewnix.net"},
