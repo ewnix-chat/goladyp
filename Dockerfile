@@ -1,15 +1,24 @@
-FROM golang:1.16 AS build
+FROM golang:1.21-bullseye AS build-env
 
-WORKDIR /app
+WORKDIR /src
 
-COPY go.mod go.sum ./
+COPY ./go.sum ./go.mod ./
+
 RUN go mod download
 
 COPY . .
 
-RUN go build -o goladyp goladyp.go
+RUN mkdir ./output
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -a -installsuffix cgo -ldflags '-extldflags "-static"' -o /src/output ./cmd/...
 
-EXPOSE 8080
+FROM gcr.io/distroless/static
 
-CMD ["goladyp"]
+COPY --from=build-env /src/output /
 
+USER nobody:nobody
+ENV PORT=80
+EXPOSE $PORT
+
+HEALTHCHECK --interval=10s --timeout=1s --start-period=5s --retries=3 CMD [ "/health" ]
+
+ENTRYPOINT ["/goladyp"]
