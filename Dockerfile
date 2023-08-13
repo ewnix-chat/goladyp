@@ -35,5 +35,5 @@ ENV LDAP_BASE_DN=
 EXPOSE 8080
 
 # Command to run the Go application
-CMD ["./goladyp"]
+CMD ["/usr/local/bin/goladyp"]
 
