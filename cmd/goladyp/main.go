@@ -90,7 +90,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Set up TLS configuration
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
 		ServerName:         strings.Split(smtpServer, ":")[0],
 	}
 
@@ -98,7 +98,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	client, err := smtp.Dial(fmt.Sprintf("%s:%s", smtpServer, smtpPort))
 	if err != nil {
 		log.Println("Error connecting to SMTP server:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, could not connect to SMTP server.", http.StatusInternalServerError)
 		return
 	}
 	defer client.Close()
@@ -106,7 +106,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	// Start TLS handshake
 	if err := client.StartTLS(tlsConfig); err != nil {
 		log.Println("Error starting TLS:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, TLS error", http.StatusInternalServerError)
 		return
 	}
 
@@ -114,20 +114,20 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	auth := smtp.PlainAuth("", smtpUsername, smtpPassword, strings.Split(smtpServer, ":")[0])
 	if err := client.Auth(auth); err != nil {
 		log.Println("Error authenticating:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, error authenticating", http.StatusInternalServerError)
 		return
 	}
 
 	// Set the sender and recipient
 	if err := client.Mail(fromEmail); err != nil {
 		log.Println("Error setting sender:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, error setting sender", http.StatusInternalServerError)
 		return
 	}
 
 	if err := client.Rcpt(toEmail); err != nil {
 		log.Println("Error setting recipient:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, error setting recipient", http.StatusInternalServerError)
 		return
 	}
 
@@ -135,7 +135,7 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	data, err := client.Data()
 	if err != nil {
 		log.Println("Error sending email body:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, no body?", http.StatusInternalServerError)
 		return
 	}
 	defer data.Close()
@@ -147,14 +147,14 @@ func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
 	_, err = data.Write([]byte(msg))
 	if err != nil {
 		log.Println("Error writing email data:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, error writing data", http.StatusInternalServerError)
 		return
 	}
 
 	// Send the email
 	if err := client.Quit(); err != nil {
 		log.Println("Error sending email:", err)
-		http.Error(w, "Error sending email", http.StatusInternalServerError)
+		http.Error(w, "Error sending email, could not send?", http.StatusInternalServerError)
 		return
 	}
 
