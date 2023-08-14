@@ -21,6 +21,11 @@ func main() {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	allowedOrigin := "https://www.ewnix.net"
+	w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+	w.Header().Set("Access-Control-Allow-Methods", "POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST requests are allowed", http.StatusMethodNotAllowed)
 		return
