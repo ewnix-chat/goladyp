@@ -11,17 +11,24 @@ import (
 
 	"github.com/go-ldap/ldap/v3"
 	"gopkg.in/gomail.v2"
+	"github.com/rs/cors"
 )
 
 func main() {
-	http.HandleFunc("/request", handleRequest)
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins: []string{"https://www.ewnix.net"},
+		AllowedMethods: []string{"POST"},
+		AllowedHeaders: []string{"Content-Type"},
+	})
+
+	http.Handle("/request", corsHandler.Handler(http.HandlerFunc(handleRequest)))
 	port := "8080"
 	fmt.Printf("Server started on port %s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	allowedOrigin := "*"
+	allowedOrigin := "https://www.ewnix.net"
 	w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
