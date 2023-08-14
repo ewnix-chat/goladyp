@@ -6,163 +6,150 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/smtp"
 	"os"
+	"strconv"
 
 	"github.com/go-ldap/ldap/v3"
-	"github.com/rs/cors"
+	"gopkg.in/gomail.v2"
 )
 
-type RequestData struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
+func main() {
+	http.HandleFunc("/request", handleRequest)
+	port := "8080"
+	fmt.Printf("Server started on port %s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-func checkUsernameExists(username string) (bool, error) {
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST requests are allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var data map[string]string
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&data)
+	if err != nil {
+		http.Error(w, "Failed to parse JSON", http.StatusBadRequest)
+		return
+	}
+
+	username, ok := data["username"]
+	if !ok {
+		http.Error(w, "Username not provided", http.StatusBadRequest)
+		return
+	}
+
+	email, ok := data["email"]
+	if !ok {
+		http.Error(w, "Email not provided", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Printf("Received POST request: Username=%s, Email=%s\n", username, email)
+
+	if usernameExists(username) {
+		http.Error(w, "Username already exists", http.StatusConflict)
+		fmt.Printf("Username '%s' already exists\n", username)
+		return
+	}
+
+	fmt.Printf("Username '%s' does not exist\n", username)
+
+	err = sendEmail(username, email)
+	if err != nil {
+		http.Error(w, "Failed to send email", http.StatusInternalServerError)
+		fmt.Printf("Error sending email: %s\n", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "Account request processed successfully!")
+	fmt.Printf("Account request processed for Username=%s, Email=%s\n", username, email)
+}
+
+func usernameExists(username string) bool {
 	ldapServer := os.Getenv("LDAP_SERVER")
 	ldapPort := os.Getenv("LDAP_PORT")
 	ldapBindDN := os.Getenv("LDAP_BIND_DN")
 	ldapBindPassword := os.Getenv("LDAP_BIND_PASSWORD")
 	ldapBaseDN := os.Getenv("LDAP_BASE_DN")
 
-	tlsConfig := &tls.Config{InsecureSkipVerify: false}
+	fmt.Printf("Checking if Username '%s' exists in LDAP...\n", username)
 
-	conn, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", ldapServer, ldapPort), tlsConfig)
+	// Connect to LDAP over SSL
+	l, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", ldapServer, ldapPort), &tls.Config{InsecureSkipVerify: true}) // Set to true only for testing
 	if err != nil {
-		return false, err
+		log.Printf("LDAP connection error: %s", err)
+		return true // Assuming true here to avoid account creation in case of error
 	}
-	defer conn.Close()
+	defer l.Close()
 
-	err = conn.Bind(ldapBindDN, ldapBindPassword)
+	fmt.Printf("Connected to LDAP server '%s:%s'\n", ldapServer, ldapPort)
+
+	err = l.Bind(ldapBindDN, ldapBindPassword)
 	if err != nil {
-		return false, err
+		log.Printf("LDAP bind error: %s", err)
+		return true
 	}
+
+	fmt.Println("LDAP bind successful")
 
 	searchRequest := ldap.NewSearchRequest(
-		ldapBaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-		fmt.Sprintf("(cn=%s)", username), []string{"cn"}, nil,
+		ldapBaseDN,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		fmt.Sprintf("(uid=%s)", username),
+		[]string{"dn"},
+		nil,
 	)
 
-	searchResult, err := conn.Search(searchRequest)
+	sr, err := l.Search(searchRequest)
 	if err != nil {
-		return false, err
+		log.Printf("LDAP search error: %s", err)
+		return true
 	}
 
-	return len(searchResult.Entries) > 0, nil
+	if len(sr.Entries) > 0 {
+		fmt.Printf("Username '%s' exists in LDAP\n", username)
+		return true
+	}
+
+	fmt.Printf("Username '%s' does not exist in LDAP\n", username)
+	return false
 }
 
-func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var requestData RequestData
-	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
-		http.Error(w, "Invalid JSON data", http.StatusBadRequest)
-		return
-	}
-
-	usernameExists, err := checkUsernameExists(requestData.Username)
-	if err != nil {
-		log.Println("Error checking username:", err)
-		http.Error(w, "Error processing request", http.StatusInternalServerError)
-		return
-	}
-
-	if usernameExists {
-		http.Error(w, "Username already exists!", http.StatusConflict)
-		return
-	}
-
+func sendEmail(username, email string) error {
 	fromEmail := os.Getenv("FROM_EMAIL")
-	toEmail := os.Getenv("TO_EMAIL")
 	smtpServer := os.Getenv("SMTP_SERVER")
-	smtpPort := os.Getenv("SMTP_PORT")
+	smtpPortStr := os.Getenv("SMTP_PORT")
 	smtpUsername := os.Getenv("SMTP_USERNAME")
 	smtpPassword := os.Getenv("SMTP_PASSWORD")
+	toEmail := os.Getenv("TO_EMAIL")
 
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         smtpServer,
-	}
+	fmt.Printf("Sending email for Username=%s, Email=%s\n", username, email)
 
-	client, err := smtp.Dial(fmt.Sprintf("%s:%s", smtpServer, smtpPort))
+	smtpPort, err := strconv.Atoi(smtpPortStr)
 	if err != nil {
-		log.Println("Error connecting to SMTP server:", err)
-		http.Error(w, "Error sending email, could not connect to SMTP server.", http.StatusInternalServerError)
-		return
-	}
-	defer client.Close()
-
-	log.Println("Connected to SMTP server")
-
-	if err := client.StartTLS(tlsConfig); err != nil {
-		log.Println("Error starting TLS:", err)
-		http.Error(w, "Error sending email, TLS error", http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	auth := smtp.PlainAuth("", smtpUsername, smtpPassword, smtpServer)
-	if err := client.Auth(auth); err != nil {
-		log.Println("Error authenticating:", err)
-		http.Error(w, "Error sending email, error authenticating", http.StatusInternalServerError)
-		return
+	m := gomail.NewMessage()
+	m.SetHeader("From", fromEmail)
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "New Account Request!")
+	m.SetBody("text/plain", fmt.Sprintf("Username: %s\nEmail: %s", username, email))
+
+	d := gomail.NewDialer(smtpServer, smtpPort, smtpUsername, smtpPassword)
+	d.TLSConfig = &tls.Config{InsecureSkipVerify: true} // Set to true only for testing
+
+	fmt.Printf("Dialing SMTP server '%s:%d'...\n", smtpServer, smtpPort)
+
+	if err := d.DialAndSend(m); err != nil {
+		fmt.Printf("Error sending email: %s\n", err)
+		return err
 	}
 
-	if err := client.Mail(fromEmail); err != nil {
-		log.Println("Error setting sender:", err)
-		http.Error(w, "Error sending email, error setting sender", http.StatusInternalServerError)
-		return
-	}
-
-	if err := client.Rcpt(toEmail); err != nil {
-		log.Println("Error setting recipient:", err)
-		http.Error(w, "Error sending email, error setting recipient", http.StatusInternalServerError)
-		return
-	}
-
-	data, err := client.Data()
-	if err != nil {
-		log.Println("Error sending email body:", err)
-		http.Error(w, "Error sending email, no body?", http.StatusInternalServerError)
-		return
-	}
-	defer data.Close()
-
-	subject := "New Account Request!"
-	body := fmt.Sprintf("Username: %s\nEmail: %s", requestData.Username, requestData.Email)
-	msg := fmt.Sprintf("Subject: %s\n%s\n", subject, body)
-
-	_, err = data.Write([]byte(msg))
-	if err != nil {
-		log.Println("Error writing email data:", err)
-		http.Error(w, "Error sending email, error writing data", http.StatusInternalServerError)
-		return
-	}
-
-	if err := client.Quit(); err != nil {
-		log.Println("Error sending email:", err)
-		http.Error(w, "Error sending email, could not send?", http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintln(w, "Email sent successfully")
-}
-
-func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/request", sendEmailHandler)
-
-	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowCredentials: true,
-		AllowedMethods:   []string{"GET", "POST"},
-		AllowedHeaders:   []string{"Origin", "Authorization", "Content-Type"},
-	})
-
-	handler := c.Handler(mux)
-
-	log.Fatal(http.ListenAndServe(":8080", handler))
+	fmt.Println("Email sent successfully")
+	return nil
 }
 
